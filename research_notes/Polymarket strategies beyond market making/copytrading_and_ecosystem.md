@@ -1,103 +1,417 @@
 # Copy-trading / smart-money following on Polymarket, and non-trading business routes (as of Oct 9, 2026)
 
-STATUS: IN PROGRESS (notes being written incrementally; sections below may be incomplete)
+Scope note: quantitative results below are this researcher's own analysis of Polymarket's public APIs (data-api, user-pnl-api, gamma, CLOB prices-history), run Oct 9, 2026 from a read-only, US-geoblocked container (no orders placed). Scripts and raw outputs are in the session scratchpad `ct/` folder (build_universe.py, fetch_pnl.py, persistence.py, copysim.py, post2.py, persistence_results.json, copysim_50_*.json, raw_notes_backup.md). The file `kfee.pdf` from the earlier attempt is NOT a Kalshi fee schedule. It is a saved "Vercel Security Checkpoint" HTML page, so I discarded it.
 
-## Prior-run artifacts found
-- Scratch dir ct/: universe.json (16,702 wallets with >=$500 sampled notional in 400 top-volume markets that ended Apr 1-Jul 31 2026), lb_profile.json (Month/Week top-50 leaderboard profile). pnl_series.json was NOT written (run interrupted) -> re-running.
+## Q1. Do leaderboard winners stay profitable out of sample, and can a copier make money after fees and latency?
 
-## RAW FINDINGS LOG (to be restructured)
-- kfee.pdf in scratchpad is NOT a Kalshi fee schedule: it's a Vercel Security Checkpoint HTML page (useless).
-- Builder fees (docs.polymarket.com/builders/fees): taker max 100 bps, maker max 50 bps, 1bp granularity, default 0; ON TOP of platform fees; paid to builder-profile wallet after Builders Service indexes OrderFilled; change once/7d, takes effect 3d after scheduling; PM can revoke/disable code at discretion; profiles+rates public.
-- Geoblock doc (docs.polymarket.com/api-reference/geoblock, fetched Oct 9 2026): Blocked: IR, SY, CU, KP, UA-43/14/09. Close-only (frontend+API): AU BY BE BI BR CF CD ET FR DE IQ IT LB LY MM NZ NI KP PL RU SG SO SK SS SD TW TH GB US UM VE YE ZW; CA-BC/ON/AB/QC. Close-only frontend only (API not restricted): IE JP MT(sports only) NL KR. Spain NOT on list.
-- Spain: DGOJ (Ministerio de Derechos Sociales, Consumo y Agenda 2030) ordered precautionary nationwide ISP block of Polymarket AND Kalshi, published BOE May 26 2026; disciplinary proceedings; expected 3-4 months; served via BOE because companies unreachable — coinmarketcap.com/academy/article/spain-blocks-polymarket-kalshi ; decrypt.co/es/369147 ; sigma.world/es/news/bloqueo-polymarket-kalshi-espana/ ; bandaancha.eu/articulos/consumo-obliga-operadoras-bloquear-11781
-- Polymarket US (rivermarkets.com/insights/polymarket-us-fees.html, updated Aug 9 2026): makers 0%; taker = contracts*rate*p*(1-p), rates eff. Jul 1 2026: geopolitics 0, politics/finance/tech/mentions 4%, sports/econ/culture/weather/other 5%, crypto 7%; volume rebates >$250k monthly taker vol; API available. Parlays via RFQ (market makers quote) public late Aug 2026 (cdcgaming).
-- Referral (docs.polymarket.com/programs/referral-program, terms eff. May 28 2026): referrer needs >=$10k lifetime volume; 10% of NET trading fees (after referee's tier rebate) direct, 5% indirect; caps: only first 30 days after referee signup AND only until referee reaches Platinum tier; 30-day click attribution; paid daily in pUSD; no rewards on fee-free markets (geopolitics); omnibus-wallet integrations ineligible; changeable without notice.
-- Builder tiers (docs.polymarket.com/builders/tiers): Unverified 100 relayer txn/day, standard API limits, no approval; Verified 10,000/day, manual approval via builder@polymarket.com, weekly USDC rewards based on volume + grants (subject to approval), leaderboard; Partner unlimited, highest rate limits. No $ amounts published. Builder overview: gasless relayer; grants competed via Builder Leaderboard; volume shows up to 24h later.
-- Kalshi Volume Incentive Program: CFTC notice Sep 28 2026 -> terminate no earlier than Oct 13 2026 (The Block 2026-09-30; sbcamericas 2026-10-02); launched Mar 2023; paid pools by share of eligible volume, trades 3c-97c; earlier filing had end = earlier of Sep 1 2027 or amendment (Unchained says Oct 1 2027 - conflict). Context: WSJ report CFTC examining ETH-perp volume (~$5,500 repeated trades, >$5B/month); Kalshi says not under investigation. Help-center pages list LIP/VIP end Sep 1 2026 (stale/conflicting).
-- Kalshi fees (secondary sources): taker = roundup(0.07*C*P*(1-P)); maker = 25% of taker where charged (i.e. 0.0175 coeff); sports differ — verify.
-- Insider controversies: ACDC "Orcas" report Aug 2026: 556 wallets, 152 earned ~$8M at 97.2% win rate mostly US military/defense markets; Mar 2026 six fresh wallets ~ $1M on US-Iran strike (Bubblemaps); Apr 2026 Army MSgt Gannon Ken Van Dyke charged (~$410k, first prediction-market insider case); Feb 2026 ZachXBT: 8 of top 10 wallets in Axiom market likely insiders; May 2026 House Oversight (Comer) probe of Polymarket & Kalshi.
-- Polysights: ~$1.5M pre-seed Jun 2026 (YZi Labs, Maven 11, Varys...), Halifax, AI analytics + insider/anomaly detection; no revenue data found.
-- PM international fees (docs.polymarket.com/trading/fees.md, fetched Oct 9 2026): fee = C*feeRate*p*(1-p), takers only; Crypto 0.07, Sports 0.05, Finance/Politics/Mentions/Tech 0.04, Economics/Culture/Weather/Other 0.05, Geopolitics 0 (fee-free). Makers never charged. Maker rebate share of taker fees: crypto 20%, sports 15%, others 25%, paid daily in pUSD, fee-curve weighted, $1 min (docs.polymarket.com/programs/maker-rebates.md). Also a tiered Taker Rebate Program exists. NOTE: task brief said sports 0.05/0.03 — current doc shows single 0.05 for sports.
-- PM US fee schedule (docs.polymarket.us/fees.md) NEW, effective 10AM ET Wed Oct 7 2026: taker theta 0.0695 all markets (table tennis 0.10), maker REBATE theta 0.0125 (paid at trade; none on combos). Taker rebates by prior-month taker volume (C*p for buys, C*(1-p) sells): $250k-1M 10%, $1-10M 25%, $10M+ 50%, paid weekly; "Accelerated Tier Placement" with proof of 30d volume on another prediction market. => Supersedes rivermarkets Aug 2026 category schedule (0/4/5/7%, makers 0).
-- PM US API (docs.polymarket.us): Retail API + Python/TS SDKs; API keys created in app after account/KYC; rate limit 25 req/s general (per IP), RFQ quotes 100/s; combos/RFQ API (market makers quote combo RFQs, last look confirm). KYC: Google/Apple sign-up, DOB, phone, legal name, address, SSN; possibly ID+selfie; CFTC-regulated exchange. Trading restrictions: MNPI/duty-of-trust insider rules (integrity.polymarket.us). Refer-a-friend: $25 credit each (referee deposits >=$10), max 50 referrals => max $1,250 credit per referrer.
-- Academic: Gomez-Cram, Guo, Kung (LBS) & Jensen (Yale), WP rev Apr 25 2026 (The Block 2026-04-26, theblock.co/post/398902): all PM trades 2023-2025, 1.72M accounts, 210,322 markets, $13.76B; 3.14% "skilled winners" (order flow predicts short-term price moves and outcomes); 44% of skilled in training stay skilled out-of-sample (vs ~10% for active mutual funds); only 12% of top earners are in skilled group; ~60% of "lucky winners" revert to losses out of sample.
-- Academic: Akey, Gregoire, Harvie, Martineau, "Who Wins and Who Loses in Prediction Markets? Evidence from Polymarket", CEPR DP21615, Jun 2026 (econpapers.repec.org/RePEc:cpr:ceprdp:21615): 588M trades/$67B; top 1% of positive-PnL users capture 76.5% of profits; winners PROVIDE liquidity with limit orders, losers take liquidity with market orders; monthly performance modestly persistent but may be selection; insider trading unlikely to explain largest winners.
-- Telegram copy bots (pm.wiki, unverified aggregator): Onsight $377K all-time builder volume/133 active users; PolyTap $3.1M/38 users. Dune: 231 registered builder integrations (blog URL now 404).
-- Spain detail: Ministry press note (dsca.gob.es/.../consumo-abre-expediente-sancionador-plataformas-polymarket-kalshi-ordena), euronews es 2026-05-26; igamingbusiness; sbcnews 2026-05-26; cointelegraph: block applies only to users in Spain; Polymarket spokesperson "committed to engaging constructively"; Kalshi declined comment. One report (geeknetic) said sites still accessible at time and ministry sought judicial order. No final resolution/fine found as of Oct 9 2026 (expected 3-4 months => ~Sep 2026; status unknown). Polymarket's own geoblock list does NOT include ES (so Polymarket itself is not IP-blocking Spain; ISP-level block).
-- Kalshi international: "available in 140+ countries" (Cointelegraph, Kalshi $300M raise, Oct 2025); member agreement lists 38 restricted jurisdictions; restricted incl. France, Poland, Russia, UK, Canada, Singapore, Taiwan, Thailand, Venezuela; banned in Belgium, France, Singapore, Colombia (SBC News); intl payments: debit card, wire (min $1,000), crypto (help.kalshi.com/en/articles/14026044). Kalshi Liquidity Incentive Program: excludes NON-US users; $1-$1,000/day per market; help page end Jan 1 2027 (help.kalshi.com/en/articles/13823851). Spain blocked Kalshi too.
-- Kalshi fees (rivermarkets.com/insights/kalshi-fees.html, upd. Aug 9 2026): taker 0.07*C*P*(1-P) all categories; makers ~0.0175 coefficient (25% of taker) on fill where charged, cancels free; REST+WebSocket API. Official PDF (kalshi.com/docs/kalshi-fee-schedule.pdf) effective Feb 5 2026 lists maker formula 0.0175 (via search snippet; fetch blocked 429/Vercel).
-- Leaderboard profile (live data-api /v1/leaderboard, top-50, computed Oct 9 2026 from prior run's lb_profile.json; "age" = days since first point in user-pnl-api series): MONTH top-50: median age 156d; 32% <60d old; 2 wallets <=7d old (e.g. joseph00677: $1.58M PnL, 3 days old; mooseborzoii $1.44M, 8d); median PnL/volume 11.1%; 36% had NEGATIVE cumulative PnL before the 30-day window; total top-50 PnL $39.0M, #50 = $298k. WEEK top-50: median age 186d, 30% <60d, median pnl/vol 11.3%, 34% negative cumulative PnL before the 7d window, #50 = $150k.
-- PM intl Taker Rebate Program (docs.polymarket.com/programs/taker-rebates.md; live May 28 2026): wV = trade$ * (1-entry price) * category weight (Sports 1.0; Pol/Fin/Mentions/Tech 1.3; Econ/Culture/Weather/Other 1.7; Crypto 2.3; Geopolitics 0); 30-day wV tiers: Bronze $2k 3% (+$10 bonus), Silver $20k 8% ($50), Gold $200k 18% ($250), Platinum $1M 32% ($1,500), Diamond $4M 44% ($7,500), Obsidian $10M+ 50% ($25,000); daily pUSD; wash/self-matching excluded. => a high-volume copy-taker can cut effective taker fee by up to half.
-- PM intl Liquidity Rewards: per-market min size/max spread/allocations, daily payout, $1 min; Aug 2026 $1M crypto TWAP 5m/15m/4h pool (ended).
-- PM US institutional REST API (docs.polymarket.us/institutional/introduction.md): base api.prod.polymarketexchange.com, gRPC streaming market data/order streams, firm participant IDs (firms/YourFirm/users/...), 3-minute access tokens; "Partner APIs" for KYC and payments; Incentives API (/v1/incentives) exposes liquidityProgram and volumeProgram per market with Target Size/Discount Factor/Max Spread scoring (Kalshi-style LIP) — i.e., PM US runs market-level liquidity incentive programs.
-- GitHub copy-trade bots (GitHub search "polymarket copy trading", 370 repos, Oct 9 2026): HarrierOnChain/Prediction-Markets-Trading-Bot-Toolkits (Rust, 473★), braedonsaunders/homerun (Py, 201★, backtest/paper), Drakkar-Software/OctoBot-Prediction-Market (117★), Abomination81/copybot (Rust, 111★, created Sep 12 2026), echandsome/Polymarket-betting-bot, shmlkv/polymarket-copy-trading-bot; aarora4/Awesome-Prediction-Market-Tools list (769★). Many are keyword-stuffed SEO repos; none publishes audited P&L. PolyCopy repo claims 42ms detection, 3.2% missed trades (self-reported).
-- SECURITY: Malicious "Polymarket bot" campaigns 2026: StepSecurity (Mar 2026) hijacked dev-protocol GitHub org hosting bot with typosquat npm pkgs exfiltrating .env/wallet keys (stepsecurity.io/blog/malicious-polymarket-bot-hides-in-hijacked-dev-protocol-github-org-and-steals-wallet-keys); SafeDep (May 2026) 9 npm pkgs by "polymarketdev" ask for private key (safedep.io/malicious-polymarket-npm-crypto-wallet-drainer/; osv.dev MAL-2026-4209/4211); fake 'polymarket-arbitrage-bot' 30 npm pkgs, >=53 downloads, attributed to DPRK "Contagious Trader" (threatcluster.io). dev.to post "Why almost every Polymarket trading bot on GitHub is malicious".
-- Dome (YC, unified PM+Kalshi data API) acquired by Polymarket, confirmed Feb 19 2026; terms undisclosed; raised $500k YC + $4.7M seed (The Block theblock.co/post/390546) vs ~$5.2M (CasinoBeats 2026-02-20). Earlier acquisition QCEX $112M (CFTC DCM+DCO) -> Polymarket US. => Polymarket is internalising the data-API layer (headwind for selling raw data).
-- Polysights site (polysights.xyz, fetched Oct 9 2026): "intelligence layer", Market Terminal, Insider Finder, Research Hub, Sports Dashboard, Trading Terminal (custodial-ish: "we handle it all on our side, though you can import your own wallet"), Competitions, Rewards; claims "$5.5B volume tracked"; no public pricing page (app /pricing 404) -> monetisation appears to be order routing (builder fees) rather than subscriptions [inference].
-- polymarketanalytics.com: Vercel 403 from container; no pricing/revenue found. Polymonit (QuickNode marketplace): read-only whale-tracking Telegram/email alerts, tiered pricing, no numbers.
-- BUILDER LEADERBOARD (live, data-api.polymarket.com/v1/builders/leaderboard?timePeriod=WEEK|MONTH|ALL&limit=50, pulled Oct 9 2026; MONTH rows are stamped dt=2026-10-01 and look like month-to-date (betmoar WEEK $24.8M vs MONTH $36.8M) -> treat MONTH as Oct 1-9):
-  - WEEK top-50 total $128.7M; #1 betmoar $24.8M/337 users; #2 traderline $14.4M/452; #3 Gate $12.2M/4 users; SpreadCore $7.6M/56; MagicMarkets $7.3M/1 user; Sharktool $6.5M/142; polymtrade $6.1M/1,623; POTS $3.3M/790; PolyCop (copy-trade TG bot) $2.24M/503 users; MetaMask $2.4M/765; RedotPay $2.1M/1,732; rank 10 = $3.0M, rank 25 = $1.23M, rank 50 = $0.23M per week.
-  - MONTH(-to-date) top-50 total $200.4M; rank 10 $4.8M, rank 25 $2.06M, rank 50 $0.34M. Ranks 51-100 ~ $23k-$336k.
-  - ALL-TIME top-50 total $7.35B; betmoar $2.30B/3,975 users; Gate $864M/94; traderline $594M/1,023; PolyCop $368M/13,016 users; MetaMask $326M/39,078; polymtrade $318M/33,958; PolyHelper $285M; polytraderpro $219M; Polygun $119M/10,013; Kreo $90M/9,060; Bullpen $65M/2,999; Polycule $47M/3,110; Bitget Wallet $43M/32,196; rank 50 = $12.5M.
-  - Many top "builders" have 1-5 users -> they are prop/MM firms tagging their own flow (for weekly builder USDC rewards), not consumer apps.
-- VPN enforcement: Covers (2026-06-01, citing The Information) & Biometric Update (Jun 2026): Polymarket reportedly blocking VPN-associated IPs to enforce geo restrictions; secondary sources say VPN circumvention violates ToS -> close-only/suspension/funds locked (covers.com/industry/polymarket-reportedly-tightens-vpn-rules-amid-rising-regulatory-pressure-june-1-2026; biometricupdate.com/202606/polymarkets-vpn-crackdown-puts-prediction-market-id-controls-under-scrutiny). polymarket.com/tos page body not retrievable (JS); polymarket.com shows "Trading is blocked in the United States on polymarket.com. Switch to polymarket.us".
-- PRIMARY: Kalshi CFTC filing Sep 28 2026 "Notice of Termination of the Volume Incentive Program" (cftc.gov/filings/orgrules/rules09282630083.pdf), signed Rhianna Ross: termination effective NO EARLIER THAN Oct 13 2026 under Rule 3.13(f). Terms: all Kalshi markets; per-market fixed "Volume Reward" per Eligible Term (<=31 days) split pro rata by Eligible Volume (CLOB trades at $0.03-$0.97; may be limited to taker or maker side); capped at $0.005 per contract per participant; EXCLUDES Kalshi affiliates, members with a MARKET MAKER AGREEMENT, IBs/FCMs and their customers. (Confirms Kalshi has a separate Market Maker Agreement program.) Redline text extraction didn't show the prior end date (Unchained says Oct 1 2027; Aug 2026 filing rules08042613748 said Sep 1 2027).
-- PM US incentive programs (docs.polymarket.us/incentives/overview.md): User programs (Deposit, Refer-A-Friend, Deposit+Trading — open; Sequential — coming soon); INSTITUTIONAL: Volume Incentive Program (open; taker notional 3c-97c, pro-rata pools e.g. $100k per NBA Playoffs moneyline in-game, min $500 notional), Liquidity Incentive Program (open; per-second random snapshot scoring = DiscountFactor^ticks * size, Target Size, optional Max Spread, pools per time period pre-game/day-of/live/daily, live schedule at polymarket.us/rewards; paid within ~5+2 business days; $1 min), MARKET MAKER PROGRAM (by application, contractual). AFFILIATE: Referral Incentive Program (by application, contractual) — i.e., PM US has an affiliate route distinct from $25 refer-a-friend. All require US KYC (SSN).
-- PRIMARY (polymarket.com page strings, fetched Oct 9 2026): trade-confirmation attestation: "By trading, you agree to the [Terms] and attest that you are not (i) a U.S. person; (ii) located in the United States, France or other restricted jurisdiction; and (iii) using a VPN or other measures to circumvent or attempt to circumvent restrictions. Polymarket reserves the right to put your wallet in close-only mode if you do not comply with these Terms." Site nav links institutional.polymarket.com. Full ToS text re: API commercial use/data redistribution not retrievable (JS-rendered) -> GAP.
+### Takeaway
+Wallet PnL persists only weakly: Spearman rank correlation between consecutive periods is 0.09–0.26. Top wallets typically earn 5–30% of their formation-period dollars in the next period, and about 40% of top-10 wallets simply stop trading. Copying the top-50 wallets' taker buys was profitable in only 1 of 4 monthly out-of-sample tests (Aug→Sep, about +11% at a 1-minute delay). Averaged across tests it was about −3% at 1 minute and −4% to −6% at 5–15 minutes, size-weighted and net of taker fees. Any edge decays within about 5 minutes and is negative at 60 minutes in every test. Copy-trading is therefore not a reliable standalone strategy for a $10–50K operator. At best it is a noisy, regime-dependent signal in sports markets that needs sub-minute execution and strict wallet filtering.
 
-## QUANT RESULT 1: PnL persistence (own analysis, Oct 9 2026)
-Method: universe = wallets seen in /trades of the 400 highest-volume markets that ENDED Apr 1-Jul 31 2026 (gamma, closed), >=$500 sampled notional (16,702 wallets); took the 5,000 largest by sampled notional; daily cumulative PnL series from user-pnl-api.polymarket.com/user-pnl?interval=all&fidelity=1d. 4,417 returned series; 583 (12%) returned EMPTY series (skewed to single-market wallets, median 1 market vs 4) -> excluded (survivorship-type bias: one-shot wallets under-represented). Formation PnL = change in cumulative PnL over formation window; test = change over next window. PnL is $ (incl. mark-to-market), not % return.
-| Split (formation -> test) | n active | Spearman rank corr | Top-10 test mean / median / %pos / %flat | Top-50 test mean / median / %pos | Top-100 test mean / %pos | Bottom-100 test mean / %pos | All active %pos |
+### Cited Findings
+**How I built the wallet universe and measured PnL**
+- Universe: all wallets seen in `/trades` for the 400 highest-volume markets that ended Apr 1–Jul 31 2026 (`gamma /markets?closed=true`) with at least $500 sampled notional. That gives 16,702 wallets. I took the 5,000 largest by sampled notional. Selection uses no data after Jul 31.
+- PnL: daily cumulative PnL from `user-pnl-api.polymarket.com/user-pnl?interval=all&fidelity=1d`. 4,417 wallets returned a series; 583 (12%) returned an empty series and were excluded.
+  - The empty-series wallets were mostly single-market wallets (median 1 market, versus 4 for the others), so one-shot wallets are under-represented. That is a survivorship-type bias.
+  - PnL is in dollars and includes mark-to-market; it is not a percentage return.
+- Source: own analysis of [Polymarket Data API](https://data-api.polymarket.com) and user-pnl-api, Oct 9 2026.
+
+**Persistence table (own analysis)**
+
+| Formation → test | n active | Rank corr | Top-10 test: mean / median / %pos / %flat | Top-50 test: mean / median / %pos | Top-100 test: mean / %pos | Bottom-100 test: mean / %pos | All active %pos |
 |---|---|---|---|---|---|---|---|
-| Apr-May -> Jun-Jul | 3,721 | 0.163 | $1.47M / -$18k / 40% / 10% | $404k / $35k / 56% | $214k / 50% | -$217k / 33% | 50% |
-| Jun-Jul -> Aug1-Oct8 | 4,061 | 0.103 | $307k / $0 / 40% / 40% | $126k / $0 / 38% | $60k / 46% | -$33k / 33% | 38% |
-| Jul -> Aug | 3,658 | 0.086 | $47k / $0 / 40% / 40% | $23k / $0 / 44% | $0.4k / 45% | -$25k / 31% | 40% |
-| Aug -> Sep | 2,916 | 0.262 | $252k / $71k / 80% / 0% | $204k / $72k / 74% | $101k / 69% | -$71k / 27% | 48% |
-| Sep -> Oct1-8 | 2,777 | 0.173 | -$159k / -$2k / 40% / 0% | $15k / $0.3k / 50% | $12k / 53% | -$12k / 32% | 46% |
-- Formation means for top-10 were $0.66M-$3.8M, so test PnL is typically 5-30% of formation PnL (strong mean reversion of the $ magnitude) and top-100 overlap between formation and test is only 26-38 wallets.
-- Deciles: top formation decile has positive test mean in 4/5 splits; bottom decile negative in 5/5 (losers keep losing more reliably than winners keep winning). Middle deciles ~0.
-- Many top-10 formation wallets go FLAT (no PnL change) in the test window (40% in Jun-Jul->Aug-Oct, Jul->Aug): one-shot / event-specific winners (e.g., World Cup) that stop trading.
-- Live gamma feeSchedule fields (top-200 closed markets ending after Sep 20 2026): 41 no-fee (feesEnabled false, e.g. Fed-chair/geopolitics), politics_fees rate 0.04 (rebate 25%), sports_fees_v2 rate 0.03 (rebate 25%), sports_fees_v3 rate 0.05 (rebate 15%), sports_fees_nfl_cfb_oct26 rate 0.03 (rebate 15%), zero_fees, culture 0.05, economics 0.05. => sports is 0.03 OR 0.05 depending on market fee type (resolves the brief's "sports 0.05/0.03"). Fee as % of notional for a taker BUY at price p = rate*(1-p): e.g. crypto at 50c = 3.5%, sports(0.05) 2.5%, sports(0.03)/politics(0.04) 1.5%/2.0%; at 80c: crypto 1.4%, politics 0.8%.
+| Apr–May → Jun–Jul | 3,721 | 0.163 | $1.47M / −$18k / 40% / 10% | $404k / $35k / 56% | $214k / 50% | −$217k / 33% | 50% |
+| Jun–Jul → Aug 1–Oct 8 | 4,061 | 0.103 | $307k / $0 / 40% / 40% | $126k / $0 / 38% | $60k / 46% | −$33k / 33% | 38% |
+| Jul → Aug | 3,658 | 0.086 | $47k / $0 / 40% / 40% | $23k / $0 / 44% | $0.4k / 45% | −$25k / 31% | 40% |
+| Aug → Sep | 2,916 | 0.262 | $252k / $71k / 80% / 0% | $204k / $72k / 74% | $101k / 69% | −$71k / 27% | 48% |
+| Sep → Oct 1–8 | 2,777 | 0.173 | −$159k / −$2k / 40% / 0% | $15k / $0.3k / 50% | $12k / 53% | −$12k / 32% | 46% |
 
-## QUANT RESULT 2 (preliminary, run 1): copy-trade simulation, leaders = top-50 by Jun-Jul 2026 PnL, test Aug 1-Oct 8 2026
-Method (copysim.py): each leader's TAKER BUY fills in test window from data-api /trades?user=&takerOnly=true (aggregated per token per 60s = 1 signal; max 120 random signals/leader); copier buys same token D minutes later at price = leader VWAP + (CLOB prices-history 1-min price at t+D minus price just before fill) — i.e. pays the same spread/impact the leader paid plus subsequent drift; holds to resolution; taker fee per market feeSchedule. 50 leaders -> 114,569 taker-buy fills -> 3,401 signals sampled -> 2,946 with resolved market+history (2,753 after excluding leader price <2c/>98c).
-- Notional-weighted (copy in proportion to leader size) net return per $ held to resolution: D=0 (leader's own entry) -0.06% (gross +1.4% on all 2,946); D=1m -1.0%; 2m -2.3%; 5m -3.2%; 15m -5.1%; 60m -9.7%.
-- Equal-$ per signal, raw mean is dominated by artifacts in 5/15-min crypto Up/Down markets (1-min price history too coarse; copier price can collapse to ~1c) -> unreliable; see run 2.
-- Median taker share of leaders' notional in test window = 60%; 13/50 leaders >80% taker, 2/50 <20% taker (others mix maker/taker -> maker fills cannot be copied as cheap taker orders).
-- Copier price slippage vs leader (winning signals only, biased upward): median +1.0c at 1m, +2.0c at 2-5m, +3.5c at 15m, +8.5c at 60m.
+- Formation-period mean PnL for the top-10 was $0.66M–$3.8M. Only 26–38 of the formation top-100 were also in the test-period top-100.
+- The top formation decile had a positive test mean in 4 of 5 splits. The bottom decile was negative in all 5. Losers keep losing more reliably than winners keep winning. — own analysis
 
-## QUANT RESULT 2 (FINAL, run 2 supersedes run 1): copy-sim A — leaders = top-50 by Jun-Jul 2026 PnL; test Aug 1-Oct 8 2026
-- 50 leaders: 114,568 taker-buy fills -> 3,401 signals (<=120/leader sampled) -> 2,946 with resolved market & price history -> 35 leaders had usable signals (15 of the 50 had no taker buys / no resolved markets in test window = went inactive or maker-only).
-- Cleaning: dropped leader price <2c/>98c and 593 signals where the 1-min price history hit the clamp or fell below half the leader price within 15 min (data glitches, e.g. "Will Iceland win" priced 0.001 for 15 min; 5-min crypto Up/Down). Final n=2,160 signals. CIs = 95% bootstrap resampling leaders (clustered).
-| Copier delay | Size-weighted net return (copy proportional to leader $) | Equal-$ per signal net |
-|---|---|---|
-| 0 (leader's own fill price, i.e. upper bound) | -0.5% [-9.8, +13.0] (gross +1.3%) | +7.6% [-4.7, +18.7] |
-| 1 min | -2.1% [-10.6, +9.1] | +3.4% [-7.7, +13.5] |
-| 2 min | -2.7% [-12.9, +7.3] | +1.7% [-8.7, +11.5] |
-| 5 min | -3.4% [-13.4, +5.4] | -0.9% [-10.9, +8.4] |
-| 15 min | -5.0% [-13.8, +2.6] | -7.5% [-16.8, +1.6] |
-| 60 min | -10.6% [-24.9, -5.8] | -16.2% [-27.6, -5.2] |
-- Copier price minus leader VWAP: mean +1.45c / median +0.7c at 1m; +2.7c / +1.0c at 5m; +3.8c / +1.0c at 15m. Avg taker fee = 1.9% of notional at leader price (sports 2.4%, crypto 4.1%).
-- By category: SPORTS (1,372 signals, 30 leaders): size-wtd 0m -0.8%, 1m -2.4%, 5m -4.0%, 15m -6.3% [-20.3,-1.1]; equal-$ 0m +12.4% [+0.2,+24.2], 1m +7.5% [-2.8,+16.3], 5m +4.0% [-5.8,+12.1] (only category with a hint of copyable edge, in small trades, not significant after 1m). NO/ZERO-FEE markets (geopolitics etc., 474): size-wtd -5% to -6% at all delays, equal-$ -16% to -21% (leaders lost here). OTHER fee'd (politics/culture/econ/tech, 266 signals, 10 leaders): +33% at 0m, +28.5% at 5m size-wtd but CI [-27,+58] — driven by a few large winning bets. CRYPTO (48): -8% at 0m, -52% at 5m, -105% at 15m (fast markets uncopyable).
-- Only 16/32 leaders (>=10 signals) had positive size-weighted net returns even at 0 delay; 16 at 1m; 15 at 5m.
+**Profile of today's leaderboard** (own analysis, live `data-api.polymarket.com/v1/leaderboard?timePeriod=MONTH|WEEK&orderBy=PNL&limit=50`; "age" = days since the first point in the wallet's PnL series)
+- Monthly top-50:
+  - Median age 156 days; 32% are younger than 60 days.
+  - 2 wallets are 7 days old or less. For example, "joseph00677" made $1.58M PnL in a 3-day-old account, and "mooseborzoii" made $1.44M in 8 days.
+  - Median PnL/volume is 11.1%.
+  - 36% had negative cumulative PnL before the 30-day window started.
+  - Total PnL is $39.0M; the #50 wallet made $298k.
+- Weekly top-50:
+  - 30% are younger than 60 days; median PnL/volume is 11.3%.
+  - 34% had negative cumulative PnL before the week.
+  - The #50 wallet made $150k.
+- In short, many leaderboard entries are high-variance or brand-new wallets rather than proven traders.
 
-## QUANT RESULT 3: copy-sim B — leaders = top-50 by AUGUST 2026 PnL; copied in Sep 1-Oct 1 2026 (resolved by Oct 9)
-- 50 leaders: 63,564 taker-buy fills -> 3,968 signals -> 3,333 resolved -> 2,456 after cleaning (612 glitch drops), 38 leaders. Leader taker share of notional: median 54%; 4/50 >80% taker, 3/50 <20%.
-| Delay | Size-weighted net | Equal-$ net |
-|---|---|---|
-| 0 | +12.5% [+0.7, +21.9] (gross +13.4%) | +8.8% [-2.4, +20.9] |
-| 1 min | +11.3% [-1.7, +20.9] | +5.8% [-5.8, +16.9] |
-| 2 min | +10.8% [-1.3, +20.5] | +3.5% [-6.5, +14.9] |
-| 5 min | +10.1% [-3.4, +21.1] | +2.7% [-7.9, +12.7] |
-| 15 min | +8.1% [-5.1, +18.2] | -3.4% [-12.8, +6.9] |
-| 60 min | +1.9% [-12.2, +13.0] | -12.8% [-22.7, -3.2] |
-- Sports (1,468): size-wtd +9.8% (0m) -> +7.9% (1m) -> +7.0% (5m) -> +4.0% (15m) -> -7.8% (60m); equal-$ +8.7% -> +5.0% -> +1.2% -> -8.7% -> -21.6%. No/zero-fee (574): +10.7% -> +10.4% (1m) -> +8.5% (5m). Other fee'd (397): ~+23-25% at all delays (wide CI).
-- 28/37 leaders positive at 0m, 25 at 1m, 23 at 5m.
-- Copier price minus leader VWAP: mean +1.3c/median +0.5c at 1m; +2.5c/+1.0c at 5m; +3.9c/+1.0c at 15m.
-- CONTRAST with sim A (Jun-Jul leaders, Aug-Oct): A was negative (-2.1% at 1m). Result is regime-dependent; consistent with persistence table (Aug->Sep rank corr 0.26, top-50 74% positive vs 38% for Jun-Jul->Aug-Oct).
+**Copy-trade simulation: method** (own analysis, copysim.py + post2.py)
+- Leaders: the top-50 wallets by formation-period PnL.
+- Signals: each leader's TAKER BUY fills in the test window (`/trades?user=&takerOnly=true`), aggregated per token per 60 seconds, with at most 120 sampled per leader.
+- Copier price at delay D = leader's VWAP + (1-minute CLOB prices-history price at t+D − price just before the leader's fill). So the copier pays the same spread and impact as the leader plus the subsequent drift.
+- The copier holds to resolution and pays the taker fee from each market's `feeSchedule`.
+- Cleaning:
+  - Excluded leader prices below 2c or above 98c.
+  - Excluded signals where the price history hit the clamp or fell below half the leader's price within 15 minutes. These were mostly data glitches, such as "Will Iceland win" printing at 0.001 for 15 minutes, plus 5-minute crypto markets. This removed 428–612 signals per run.
+- 95% confidence intervals come from a bootstrap that resamples leaders.
+- Markets not resolved by Oct 9 are dropped, which biases the sample toward fast-resolving markets.
 
-## QUANT RESULT 4: copy-sims C and D + pooled summary
-- C: leaders = top-50 by Sep 2026 PnL, copied Oct 1-8 (resolved by Oct 9; short window -> fast-resolving markets): 102,766 taker-buy fills, 1,674 clean signals, 39 leaders. Size-wtd net: 0m -9.6% [-27.3,+5.0], 1m -9.6%, 5m -9.5%, 15m -12.0% [-28.3,-1.0]. Equal-$: 0m -2.8%, 1m -2.8%, 5m -9.1% [-16.2,-2.7], 15m -12.6% [-18.3,-6.7]. Leaders' own gross size-wtd -8.7%.
-- D: leaders = top-50 by Jul 2026 PnL, copied Aug 2026: 46,460 fills, 1,599 clean signals, 31 leaders. Size-wtd: 0m -8.2%, 1m -10.5%, 5m -12.5%, 15m -15.0%, 60m -31.2% [-39.9,-16.5]. Equal-$: 0m +9.2% [+0.9,+19.4], 1m +6.3% [-1.2,+14.9], 5m +2.4%, 15m -3.6%, 60m -19.0%.
-- POOLED (simple average of 4 sims A-D): size-weighted 1m = -2.7%, 5m ≈ -3.9%, 15m ≈ -6.0%; equal-$ 0m ≈ +5.7%, 1m ≈ +3.2%, 5m ≈ -1.2%, 15m ≈ -6.8%, 60m ≈ -16% (D -19, A -16, B -13; C n/a-noisy). Leaders' own size-weighted net at 0m: -0.5, +12.5, -9.6, -8.2 (only 1/4 periods positive).
-- Copier slippage is consistent across sims: ~+0.5c median / +1.2-1.5c mean at 1 min, +1c median / +2.2-2.7c mean at 5 min, +1c median / +3.6-4.1c mean at 15 min.
+**Copy-sim results: net return per $ held to resolution, size-weighted (copier sizes proportionally to the leader)**
+
+| Sim (leaders' formation period → copy window) | Clean signals / leaders | 0 min (leader's own price) | 1 min | 5 min | 15 min | 60 min |
+|---|---|---|---|---|---|---|
+| A: Jun–Jul → Aug 1–Oct 8 | 2,160 / 35 | −0.5% [−9.8, +13.0] | −2.1% [−10.6, +9.1] | −3.4% [−13.4, +5.4] | −5.0% [−13.8, +2.6] | −10.6% [−24.9, −5.8] |
+| B: Aug → Sep | 2,456 / 38 | +12.5% [+0.7, +21.9] | +11.3% [−1.7, +20.9] | +10.1% [−3.4, +21.1] | +8.1% [−5.1, +18.2] | +1.9% [−12.2, +13.0] |
+| C: Sep → Oct 1–8 | 1,674 / 39 | −9.6% [−27.3, +5.0] | −9.6% | −9.5% | −12.0% [−28.3, −1.0] | −11.9% |
+| D: Jul → Aug | 1,599 / 31 | −8.2% | −10.5% | −12.5% | −15.0% | −31.2% [−39.9, −16.5] |
+| Average of A–D | — | −1.5% | −2.7% | −3.9% | −6.0% | −13% |
+
+**Copy-sim results: equal dollars per signal**
+- A: 0 min +7.6%, 1 min +3.4%, 5 min −0.9%, 15 min −7.5%, 60 min −16.2%.
+- B: +8.8%, +5.8%, +2.7%, −3.4%, −12.8%.
+- C: −2.8%, −2.8%, −9.1% [−16.2, −2.7], −12.6% [−18.3, −6.7].
+- D: +9.2% [+0.9, +19.4], +6.3%, +2.4%, −3.6%, −19.0%.
+- Average: about +5.7% at 0 min, +3.2% at 1 min, −1.2% at 5 min, −6.8% at 15 min.
+- So the leaders' small trades carry a small edge that is gone within about 5 minutes. — own analysis
+
+**Supporting statistics from the copy-sims**
+- Copier slippage versus the leader's VWAP, consistent across all four sims:
+
+  | Delay | Median | Mean |
+  |---|---|---|
+  | 1 min | +0.5–0.85c | +1.2–1.5c |
+  | 5 min | +1c | +2.2–2.7c |
+  | 15 min | +1c | +3.6–4.1c |
+
+- Average taker fee was 1.9% of notional at the leader's price: sports 2.4%, crypto 4.1%. — own analysis
+- Leaders positive (size-weighted, among those with at least 10 signals):
+
+  | Sim | Leaders | Positive at 0 min | at 1 min | at 5 min |
+  |---|---|---|---|---|
+  | A | 32 | 16 | 16 | 15 |
+  | B | 37 | 28 | 25 | 23 |
+
+  — own analysis
+- Results by category:
+  - Sports was the largest bucket. In A it went −0.8% (0 min) → −2.4% (1 min) → −4.0% (5 min) size-weighted, with equal-$ at +12.4% [+0.2, +24.2] at 0 min. In B it went +9.8% → +7.9% → +7.0%.
+  - Crypto fast markets could not be copied: A went −8% at 0 min, −52% at 5 min and −105% at 15 min.
+  - No-fee and geopolitics markets lost money in A (−5% to −6% size-weighted) but were positive in B (+10%). — own analysis
+- Taker share of leaders' notional in the test window was 60% (median) in A and 54% in B. Only 4–13 of 50 leaders were more than 80% taker. The rest of their flow is maker fills, which a copier cannot replicate at the same price with taker orders. — own analysis
+
+**Fees used** (live gamma `feeSchedule`; [Polymarket fee docs](https://docs.polymarket.com/trading/fees.md))
+- Fee = C × rate × p × (1−p), charged to takers only.
+- Rates: crypto 0.07; sports 0.05 (`sports_fees_v3`) or 0.03 (`sports_fees_v2`, `sports_fees_nfl_cfb_oct26`); politics, finance, tech and mentions 0.04; economics, culture, weather and other 0.05; geopolitics 0.
+- For a taker buy, the fee as a share of notional is rate × (1−p). At 50c that is 3.5% for crypto, 2.5% or 1.5% for sports, and 2% for politics.
+- The [Taker Rebate Program](https://docs.polymarket.com/programs/taker-rebates.md) (live May 28 2026) refunds 3–50% of fees by 30-day weighted volume:
+  - Bronze $2k → 3%; Silver $20k → 8%; Gold $200k → 18%; Platinum $1M → 32%; Diamond $4M → 44%; Obsidian $10M+ → 50%.
+  - Category weights: sports 1.0, politics 1.3, economics 1.7, crypto 2.3.
+  - A $10–50K copier would realistically reach Silver or Gold (8–18% back).
+
+**Academic evidence**
+- [The Block, Apr 26 2026](https://www.theblock.co/post/398902/skilled-polymarket-traders-are-a-3-minority-and-everyone-else-funds-their-gains-study), on a working paper by Gómez-Cram, Guo, Kung (London Business School) and Jensen (Yale):
+  - Data: all Polymarket trades 2023–2025, covering 1.72M accounts and $13.76B.
+  - 3.14% of accounts are "skilled winners". 44% of those stay skilled out of sample, versus about 10% for active mutual funds.
+  - Only 12% of top earners are in the skilled group, and about 60% of "lucky winners" revert to losses out of sample.
+- [Akey, Grégoire, Harvie, Martineau, CEPR DP21615, Jun 2026](https://econpapers.repec.org/RePEc:cpr:ceprdp:21615):
+  - Data: 588M trades, $67B.
+  - The top 1% of positive-PnL users capture 76.5% of profits.
+  - Winners provide liquidity with limit orders; losers take liquidity with market orders.
+  - Monthly performance is "modestly persistent, however this may represent sample selection rather than skill."
+  - Insider trading is unlikely to explain the largest winners.
+
+### Inferences
+- Copying is structurally hard on Polymarket. The academic evidence says profitable accounts make money mainly as makers, and a copier can only follow them as a taker, paying the spread plus a 1.5–3.5% fee at mid-range prices. In my sims, the leaders' own taker buys netted only about −1.5% on average at their own fill prices.
+- A dollar PnL leaderboard is a poor filter. It mixes whales sizing up, one-shot event bets and brand-new wallets (possible insiders), and roughly 40% of top-10 wallets go flat the following month. A better filter would mirror the academic "skill" approach:
+  - wallets whose taker flow predicts short-term price moves;
+  - consistent PnL as a percentage of volume;
+  - at least 3 months of history;
+  - high taker share.
+  This is my suggestion and was not tested here.
+- If attempted at all:
+  - Restrict to sports and other non-crypto markets.
+  - Copy within about 30–60 seconds. The detection path would be websocket or on-chain `OrderFilled` events; Polygon blocks are about 2 seconds, but I did not measure the end-to-end lag.
+  - Size per signal rather than per leader's dollars, since equal-$ beat size-weighted in 3 of 4 sims.
+  - Kill a leader after N losing signals.
+  - Expect roughly zero to low single-digit returns per signal after fees, with large regime variance (sim B +11% versus sims C/D −10%).
+- The noise floor is large. One month of about 2,000 signals from about 35 leaders gives roughly ±10–15 percentage-point confidence intervals, so a copier cannot quickly tell whether a leader set has edge.
+
+### Gaps
+- The 1-minute price-history granularity cannot resolve sub-minute copy latency. "Delay 0" is the leader's own price, an upper bound. I did not measure true order-book depth or impact for copier size; a $500–5k copier in thin sports books could slip more.
+- Holding to resolution differs from mirroring the leader's exits. Exit-mirroring was not simulated.
+- Signals in markets unresolved by Oct 9 are dropped, which biases toward short-dated markets, especially in sims A and C.
+- 12% of wallets had empty PnL series. The cause is unknown, possibly an API limitation for some account types.
+- Formation and test windows overlap across sims (A spans B and C's windows with a different leader set), so the four sims are not fully independent.
+- I found no independent, audited performance data for any commercial copy-trading bot.
+
+## Q2. Copy-trading tools and bots, reported results, and how insider-trading controversies affect a copy strategy
+
+### Takeaway
+There is a large ecosystem of copy-trading bots: Telegram bots, open-source GitHub repos, and whale-alert services. Usage is measurable through the builder leaderboard; for example, PolyCop has $368M all-time routed volume across 13,016 users. No tool publishes audited copier returns, and practitioner write-ups consistently cite slippage and latency as the failure mode. Insider-style wallets (fresh wallets making large, accurate bets on military and geopolitical events) are real and are a big part of the "smart money" narrative. However, they are one-shot, often in fee-free geopolitics markets, legally toxic to copy on Polymarket US, and their edge is gone once the information is public.
+
+### Cited Findings
+**Bot usage (live builder leaderboard, `data-api.polymarket.com/v1/builders/leaderboard`, Oct 9 2026; own pull)**
+- PolyCop (Telegram copy-trading bot):
+  - Weekly: $2.24M volume, 503 users.
+  - October month-to-date: $3.32M, 620 users.
+  - All-time: $368M, 13,016 users.
+- Other trading front-ends, all-time: Kreo $90M / 9,060 users; Polygun $119M / 10,013; Polycule $47M / 3,110; Bullpen $65M / 2,999.
+- Third-party listings (pm.wiki, an unverified aggregator): [Onsight](https://pm.wiki/projects/onsight) $377K / 133 users; PolyTap $3.1M / 38 users ([pm.wiki compare](https://pm.wiki/compare/onsight-vs-polytap-bot)).
+
+**Open-source bots** (GitHub search "polymarket copy trading" returned 370 repos on Oct 9 2026)
+- HarrierOnChain/Prediction-Markets-Trading-Bot-Toolkits: Rust, 473 stars, "Copy Trading is production-ready".
+- braedonsaunders/homerun: Python, 201 stars, backtest and paper trading.
+- Drakkar-Software/OctoBot-Prediction-Market: 117 stars.
+- Abomination81/copybot: Rust, 111 stars, created Sep 12 2026.
+- Many repos are keyword-stuffed SEO spam. — [GitHub](https://github.com/HarrierOnChain/Prediction-Markets-Trading-Bot-Toolkits); [GitHub](https://github.com/braedonsaunders/homerun)
+- The [PolyCopy repo](https://github.com/laurensa453/PolyCopy) self-reports 42ms detection and 3.2% missed trades (unverified).
+
+**Security warning**
+- Malicious "Polymarket bot" campaigns in 2026:
+  - A hijacked dev-protocol GitHub org hosted a bot that exfiltrated .env files and wallet keys — [StepSecurity](https://www.stepsecurity.io/blog/malicious-polymarket-bot-hides-in-hijacked-dev-protocol-github-org-and-steals-wallet-keys).
+  - Nine npm packages from the account "polymarketdev" asked users for their private key — [SafeDep](https://safedep.io/malicious-polymarket-npm-crypto-wallet-drainer/); [OSV MAL-2026-4209](https://osv.dev/vulnerability/MAL-2026-4209).
+  - A fake "polymarket-arbitrage-bot" spread through 30 npm packages, attributed to the North Korean "Contagious Trader" campaign — [ThreatCluster](https://threatcluster.io/cluster/malware-spread-via-fake-polymarket-trading-bot-targets-defi--efb72af6).
+
+**Reported results**
+- A MEXC news item describes a trader who made about $650k in 7 months by manually copying specialists. The same trader's first attempts lost money, and copying high-probability or "insider" traders led to consistent losses — [MEXC](https://www.mexc.com/news/666845).
+- An example of copier entry slippage: a whale averages $0.44 while the follower buys at $0.48–0.50 — [startpolymarket](https://startpolymarket.com/strategies/copy-trading/). Some whales lose money, and large trades may be hedges — [QuickNode](https://www.quicknode.com/builders-guide/best/top-10-polymarket-whale-trackers).
+
+**Insider controversies**
+- Feb 2026: ZachXBT said 8 of the top 10 wallets in the Axiom market were likely insiders — [Cointelegraph](https://cointelegraph.com/news/suspected-insider-1-2m-zachxbt-axiom-expose).
+- Mar 2026: six wallets created in February made about $1M on US–Iran strike markets, some buying hours before the strikes (flagged by Bubblemaps) — [Cointelegraph](https://regional-front.cointelegraph.com/news/polymarket-traders-1m-us-iran-strike-insider-trading-concerns).
+- Apr 2026: Army Master Sgt. Gannon Ken Van Dyke was charged with using classified information to make about $410k. This is described as the first prediction-market insider-trading case — [ValueTheMarkets](https://www.valuethemarkets.com/cryptocurrency/news/insider-trading-investigation-shakes-polymarket-amid-millions-in-profits).
+- May 2026: House Oversight Chair Comer demanded records from Polymarket and Kalshi — [report](https://san-1510.aid.brainsum.com/news/top-news/us-congress-starts-insider-trading-probe-prediction-markets).
+- Aug 2026: the Anti-Corruption Data Collective flagged 556 "Orca" wallets. Of these, 152 made about $8M at a 97.2% win rate, mostly on US military and defense markets — [SMU/Inkl PDF](https://skbi.smu.edu.sg/sites/skbi.smu.edu.sg/files/%5Bcurrent-domain%3Amachine_name%5D/news_room/20260821_Inkl_Polymarket%20faces%20fresh%20insider%20trading%20scrutiny%20after%20152%20wallets%20allegedly%20made%20%248%20million%20betting%20on%20US%20military%20markets_%20report.pdf).
+- Polymarket US explicitly bars trading on confidential information obtained through a breach of duty, and on material non-public information (MNPI) in some contracts — [PM US Trading Restrictions](https://docs.polymarket.us/learn/trading/access-and-limits/trading-restrictions.md).
+- Polysights markets an "Insider Finder" tool — [polysights.xyz](https://polysights.xyz).
+
+### Inferences
+- Copying "insider" wallets is mostly unworkable:
+  - The wallets are fresh, so they are not on any leaderboard before the trade.
+  - They trade once and then vanish.
+  - Signals cluster in fee-free geopolitics and military markets, where my sim A showed copied leaders losing (−5% to −6%).
+  - Knowingly trading on others' misappropriated MNPI is legally risky, especially for a regulated-venue user.
+- The realistic "smart-money" product is anomaly alerts (fresh wallet + large size + low price), sold as information. That is what Polysights, Polymonit and others already do.
+- Copy bots make their money from builder fees on routed volume, not from users' returns.
+
+### Gaps
+- No copy-bot fee schedules were confirmed. PolyCop's base fee is not public in what I found; Polymart advertises a "10% discount on fees" without a base rate.
+- I found no audited copier PnL from any vendor.
+
+## Q3. Non-trading income: builder program, referrals, API terms, third-party tool revenue, selling data and signals
+
+### Takeaway
+The most concrete route is the Builder Program:
+- You can charge up to 1% taker / 0.5% maker on routed flow, on top of Polymarket's fees.
+- Verified builders can also win weekly USDC rewards and grants (amounts unpublished).
+- Distribution is very top-heavy. The 25th builder does about $2M in 9 days (roughly $7M/month), so at a 0.5% fee a mid-ranked builder grosses roughly $30–35k/month at most, and the 50th roughly $5–6k/month.
+
+Referral income is small: 10% of net fees, only for the referee's first 30 days. Selling raw data is a weak business because the APIs are free and Polymarket bought the leading data-API startup (Dome). Analytics and alert products monetize mainly by routing trades through builder codes.
+
+### Cited Findings
+**Builder fees** ([docs](https://docs.polymarket.com/builders/fees.md))
+- Taker maximum 100 bps; maker maximum 50 bps; 1 bp granularity; default 0.
+- Charged on top of platform fees and paid to the builder-profile wallet.
+- The rate can change once every 7 days, and a change takes effect 3 days after scheduling.
+- Polymarket can revoke fee rights or disable a builder code at its discretion. Fee rates are public.
+
+**Builder tiers** ([docs](https://docs.polymarket.com/builders/tiers.md))
+
+| Tier | Relayer transactions/day | Access | Extras |
+|---|---|---|---|
+| Unverified | 100 | No approval needed | — |
+| Verified | 10,000 | Approval via builder@polymarket.com, "a few business days" | "Weekly USDC rewards based on volume" and "Grants (subject to approval)", leaderboard listing, private Telegram |
+| Partner | Unlimited | — | Highest API rate limits |
+
+- Gas is subsidized through the relayer. No dollar amounts are published for rewards or grants. The Builder overview says grants are competed for on the Builder Leaderboard — [overview](https://docs.polymarket.com/builders/overview.md).
+
+**Builder leaderboard** (own pull, Oct 9 2026; "MONTH" is stamped dt=2026-10-01 and appears to be month-to-date)
+
+| Window | Total, top-50 | Rank 10 | Rank 25 | Rank 50 |
+|---|---|---|---|---|
+| Week | $128.7M | $3.0M | $1.23M | $0.23M |
+| Oct 1–9 | $200.4M | $4.8M | $2.06M | $0.34M |
+| All-time | $7.35B | — | — | $12.5M |
+
+- Week leaders: #1 betmoar $24.8M (337 users); traderline $14.4M (452 users).
+- All-time leaders: betmoar $2.30B; Gate $864M; traderline $594M; PolyCop $368M; MetaMask $326M (39,078 users).
+- Ranks 51–100 range from about $23k to $336k month-to-date.
+- Several top "builders" have only 1–5 users (Gate 4–5, MagicMarkets 1, Jupiter 1). — own analysis of `data-api.polymarket.com/v1/builders/leaderboard`
+
+**Referral programs**
+- Polymarket international ([terms effective May 28 2026](https://docs.polymarket.com/programs/referral-program.md)):
+  - The referrer needs at least $10k lifetime volume.
+  - Pays 10% (direct) or 5% (indirect) of NET fees, after the referee's own tier rebate.
+  - Only for the referee's first 30 days and only until the referee reaches Platinum.
+  - 30-day click attribution; paid daily in pUSD; nothing on fee-free markets.
+  - Integrations that use omnibus wallets are excluded; terms can change without notice.
+- Polymarket US:
+  - Refer-a-Friend pays a $25 credit to each side once the referee deposits at least $10, capped at 50 referrals (so at most $1,250 in credits) — [PM US FAQ](https://docs.polymarket.us/faqs/refer-a-friend-faqs.md).
+  - A separate "Referral Incentive Program" for affiliates is by application, with contractual terms — [PM US incentives](https://docs.polymarket.us/incentives/overview.md).
+
+**Data, analytics and signal businesses**
+- Polymarket acquired Dome, a YC-backed unified Polymarket+Kalshi data API, confirmed Feb 19 2026; terms undisclosed — [The Block](https://theblock.co/post/390546/polymarket-buys-fresh-prediction-market-api-startup-dome-marking-second-official-acquisition). Reported prior funding conflicts: $500k YC + $4.7M seed (The Block) versus about $5.2M ([CasinoBeats](https://casinobeats.com/2026/02/20/polymarket-acquires-dome-to-expand-developer-tools-for-prediction-markets/)).
+- Polysights:
+  - Raised about $1.5M pre-seed in Jun 2026 (YZi Labs, Maven 11, Varys and others). One headline said $15M, which conflicts — [AICoin](https://www.aicoin.com/en/article/541587); [DiarioBitcoin](https://www.diariobitcoin.com/startups-verticales/polysights-respaldada-por-polymarket-recauda-usd-15-millones-para-frenar-irregularidades-en-mercados-de-prediccion/).
+  - Its site advertises a Market Terminal, Insider Finder and Trading Terminal, and claims "$5.5B volume tracked". I found no public pricing page — [polysights.xyz](https://polysights.xyz).
+- polymarketanalytics.com: returned 403 to my requests; no pricing or revenue found.
+- Polymonit: a read-only whale-alert Telegram/email service with tiered pricing; amounts not stated — [QuickNode listing](https://www.quicknode.com/builders-guide/tools/polymonit-by-qoreon-labs-ltd).
+
+**Terms of use**
+- The polymarket.com trade attestation says users confirm they are not "(i) a U.S. person; (ii) located in the United States, France or other restricted jurisdiction; and (iii) using a VPN … Polymarket reserves the right to put your wallet in close-only mode". — polymarket.com page strings, fetched Oct 9 2026 ([polymarket.com/tos](https://polymarket.com/tos))
+- The full ToS text on commercial API and data redistribution could not be retrieved (the page is JS-rendered).
+
+**Maker-side programs** (context; covered elsewhere)
+- [Maker rebates](https://docs.polymarket.com/programs/maker-rebates.md): 20% of taker fees in crypto, 15% in sports, 25% elsewhere; paid daily.
+- [Liquidity rewards](https://docs.polymarket.com/programs/liquidity-rewards.md) include an August 2026 pool of $1M for crypto TWAP 5-minute/15-minute/4-hour markets (now ended).
+
+### Inferences
+- Builder fee arithmetic (assumes the whole volume is fee-eligible taker flow; the leaderboard's volume definition is unconfirmed):
+  - Rank-25 builder: about $7M/month × 0.5% ≈ $34k/month; × 1% ≈ $69k/month.
+  - Rank-50 builder: about $1.1M/month × 0.5% ≈ $5.7k/month.
+  - PolyCop's October pace (about $11M/month) × 1% would be about $110k/month at most.
+- In practice many builders charge less than the maximum. The builder fee also stacks on 1.5–3.5% platform taker fees, which pushes price-sensitive users away.
+- Weekly builder rewards seem to be farmed by prop or MM shops tagging their own flow; those are the 1-user builders. A $10–50K operator running their own bot flow under a Verified builder code could plausibly collect some weekly USDC rewards on top of trading. The size of those rewards is unknown.
+- Referral economics, worked example: a referee trades $100k of taker sports flow at about 50c in their first 30 days. That pays about $2.5k in fees, so the referrer earns roughly $230. Referrals only matter at audience scale (an influencer or a Telegram channel).
+- Signals and data: the APIs are free and public, and Polymarket now owns Dome. Paid differentiation therefore has to come from analytics (wallet clustering, insider or anomaly detection, sports models) or from execution convenience routed through a builder code, not from raw data. Subscription pricing benchmarks were not found.
+
+### Gaps
+- Weekly builder USDC reward and grant amounts are unpublished.
+- Actual builder fee rates per builder were not retrievable: the docs say they are public, but I could not find the endpoint.
+- I found no revenue figures for PolymarketAnalytics, Polysights or the Telegram bots.
+- Polymarket's API commercial-use and redistribution clauses could not be read.
+
+## Q4. Access and legal: Polymarket international vs Polymarket US, geoblocks, KYC, US API and market-maker programs, and EU/Spain status
+
+### Takeaway
+- Polymarket international is closed or close-only in about 33 countries, including most large EU states.
+- Polymarket US is a CFTC-regulated, KYC'd (SSN) venue for US persons only. It has:
+  - a full Retail API and an institutional REST/gRPC API;
+  - a by-application Market Maker Program;
+  - open liquidity and volume incentive programs;
+  - a new fee schedule from Oct 7 2026: 0.0695 taker, 0.0125 maker rebate.
+- Spain is not on Polymarket's own geoblock list. However, Spain's gambling regulator (DGOJ) opened sanction proceedings against Polymarket and Kalshi on May 26 2026 and ordered ISPs to block both nationwide. I found no final resolution as of Oct 9 2026.
+- For a Spain-based operator, trading Polymarket or Kalshi means operating against a Spanish regulatory block. Using a VPN to get around blocks breaches Polymarket's terms, which reserve close-only mode, and Polymarket reportedly blocks VPN IPs.
+
+### Cited Findings
+**Region table**
+
+| Region | Polymarket international | Polymarket US | Kalshi | Notes |
+|---|---|---|---|---|
+| United States | Close-only (frontend + API) | Open to US persons; KYC with SSN; CFTC-regulated | Open (US) | polymarket.com: "Trading is blocked in the United States… Switch to polymarket.us" |
+| Spain | Not on PM geoblock list, but DGOJ ordered a nationwide ISP block (BOE, May 26 2026); proceedings expected to take 3–4 months; no final decision found | Not available (US-only) | Also blocked by the same DGOJ order | DGOJ treats prediction markets as gambling that needs a Spanish licence |
+| France | Close-only | No | Restricted / banned | Named in the PM trade attestation |
+| Germany, Italy, Belgium, Poland, Slovakia | Close-only | No | Kalshi restricts Belgium and Poland (others vary) | |
+| Ireland, Netherlands, Malta (sports only) | Close-only on frontend only; API not restricted | No | — | |
+| UK, Australia, Singapore, Taiwan, Thailand, NZ, Brazil, Russia, Venezuela and others | Close-only | No | UK, Singapore, Taiwan, Thailand, Venezuela and Russia restricted | |
+| Ontario, BC, Alberta, Quebec (Canada) | Close-only | No | Canada restricted | |
+| Iran, Syria, Cuba, North Korea; Crimea, Donetsk, Luhansk | Fully blocked | No | — | |
+| Other EU, e.g. Portugal, Sweden, Czechia | Open on the PM list (verify local law) | No | Kalshi says it is available in 140+ countries | |
+
+**Sources for the region table**
+- [Polymarket geoblock docs, fetched Oct 9 2026](https://docs.polymarket.com/api-reference/geoblock).
+- Spain:
+  - [Ministry press note](https://www.dsca.gob.es/en/comunicacion/notas-prensa/consumo-abre-expediente-sancionador-plataformas-polymarket-kalshi-ordena)
+  - [CoinMarketCap](https://coinmarketcap.com/academy/article/spain-blocks-polymarket-kalshi)
+  - [Euronews ES](https://es.euronews.com/2026/05/26/consumo-bloquea-cautelarmente-a-polymarket-en-espana-por-incumplimento-de-la-normativa)
+  - [Cointelegraph](https://cointelegraph.com/news/spain-blocks-polymarket-kalshi-gambling-laws)
+  - [Decrypt ES](https://decrypt.co/es/369147/espana-bloquea-polymarket-kalshi-licencia-juego-mercados-prediccion?amp=1)
+  - [Geeknetic](https://www.geeknetic.es/Noticia/38738/Consumo-abre-expediente-a-Polymarket-y-Kalshi-ordena-bloquear-sus-webs-en-Espana-y-reabre-el-debate-europeo-sobre-los-mercados-de-prediccion.html)
+- Kalshi international:
+  - [Cointelegraph on the $300M raise and 140 countries](https://www.tradingview.com/news/cointelegraph:447497c7d094b:0-kalshi-raises-300m-to-expand-prediction-markets-to-140-countries/)
+  - [Kalshi international eligibility](https://help.kalshi.com/en/articles/14026044-international-access-eligibility)
+  - [SBC News](https://sbcnews.co.uk/featurednews/2025/10/14/kalshi-polymarket-growth/)
+
+**Spain details**
+- The DGOJ, part of the Ministerio de Derechos Sociales, Consumo y Agenda 2030, served notice via the official gazette (BOE) because it could not reach the companies at their foreign addresses.
+- ISPs had 7–10 days to comply.
+- The block covers users located in Spain.
+- Polymarket said it is "committed to engaging constructively"; Kalshi declined to comment.
+- One report said the sites were still reachable at the time and that the ministry had sought a judicial order. — [Cointelegraph](https://cointelegraph.com/news/spain-blocks-polymarket-kalshi-gambling-laws); [Geeknetic](https://www.geeknetic.es/Noticia/38738/Consumo-abre-expediente-a-Polymarket-y-Kalshi-ordena-bloquear-sus-webs-en-Espana-y-reabre-el-debate-europeo-sobre-los-mercados-de-prediccion.html)
+
+**VPN enforcement**
+- Polymarket reportedly blocks VPN-associated IPs (June 2026, citing The Information) — [Covers](https://www.covers.com/industry/polymarket-reportedly-tightens-vpn-rules-amid-rising-regulatory-pressure-june-1-2026); [Biometric Update](https://biometricupdate.com/202606/polymarkets-vpn-crackdown-puts-prediction-market-id-controls-under-scrutiny).
+
+**Polymarket US KYC** ([signup docs](https://docs.polymarket.us/learn/get-started/signup.md))
+- Sign up with Google or Apple, then provide date of birth, phone, legal name, address and SSN. An ID and selfie may be requested.
+- KYC must be completed before depositing or trading. The venue is a CFTC-regulated exchange.
+
+**Polymarket US API**
+- Retail API with Python and TypeScript SDKs; keys are created in the app — [FAQ](https://docs.polymarket.us/learn/faq/api.md); [auth](https://docs.polymarket.us/api-reference/authentication.md).
+- Rate limit is 25 requests/second per IP; RFQ quote creation and deletion are 100/second — [rate limits](https://docs.polymarket.us/api-reference/rate-limits.md).
+- Institutional REST API at `api.prod.polymarketexchange.com`, with gRPC streaming, firm participant IDs and 3-minute access tokens — [institutional](https://docs.polymarket.us/institutional/introduction.md).
+- Combos/parlays run on an RFQ system where market makers quote.
+
+**Polymarket US fees** (effective Oct 7 2026, [fee schedule](https://docs.polymarket.us/fees.md))
+- Taker fee = 0.0695 × C × p × (1−p) in all markets, except table tennis at 0.10.
+- Maker rebate = 0.0125 × C × p × (1−p), paid at the time of the trade; there is no maker rebate on combos.
+- Taker rebates based on prior-month taker volume: $250k–1M → 10%; $1–10M → 25%; $10M+ → 50%.
+- "Accelerated Tier Placement" lets you prove volume on another prediction market to start at a higher tier.
+- This supersedes the August category schedule reported by [River Markets](https://www.rivermarkets.com/insights/polymarket-us-fees.html) (0%, 4%, 5% or 7% taker by category; makers 0%).
+
+**Polymarket US incentive programs** ([overview](https://docs.polymarket.us/incentives/overview.md); [liquidity](https://docs.polymarket.us/incentives/liquidity.md); [volume](https://docs.polymarket.us/incentives/volume.md))
+- Liquidity Incentive Program (open):
+  - Each second, a random snapshot scores resting orders as DiscountFactor^ticks × size.
+  - Parameters include Target Size and an optional Max Spread.
+  - Pools are set per period: pre-game, day-of, live and daily. The live schedule is at polymarket.us/rewards.
+- Volume Incentive Program (open): based on taker notional at prices from 3c to 97c. Example: $100k per NBA Playoffs moneyline market for in-game trading, with a $500 minimum.
+- Market Maker Program: by application.
+- Referral/affiliate program: by application.
+
+### Inferences
+- For a Spain-resident operator:
+  - Polymarket US is out, since it requires US-person KYC.
+  - Polymarket international and Kalshi are under an active Spanish block.
+  - The safest non-trading routes are those that do not require placing trades from Spain: building tools or data products, or acting as a builder/integrator. Even these may raise Spanish gambling-promotion and advertising questions. That needs Spanish legal advice; I did not research it.
+- The Spanish proceedings' 3–4 month window ran out around September 2026. The status should be checked in the BOE or with the DGOJ before acting.
+
+### Gaps
+- I found no final DGOJ resolution, fine or court ruling (searched in English and Spanish).
+- Whether Spanish residents face any personal liability was not addressed by any source; reports describe enforcement aimed at the platforms.
+- Polymarket US Market Maker Program terms (rebates, obligations) are not public.
+- Kalshi's exact list of 38 restricted jurisdictions is in its Member Agreement, which I did not retrieve.
+
+## Q5. Kalshi as an alternative venue: fees, maker programs, API, and the incentive programs' end
+
+### Takeaway
+- Kalshi taker fees are 0.07 × C × P × (1−P), and maker fees are about 25% of that (0.0175) where charged. Kalshi has full REST/WebSocket APIs and a contractual Market Maker Agreement program.
+- Kalshi filed with the CFTC on Sep 28 2026 to end its Volume Incentive Program no earlier than Oct 13 2026, amid wash-trading allegations about its perps volume. The Liquidity Incentive Program reportedly continues to Jan 1 2027 but excludes non-US users.
+- Kalshi is also blocked in Spain.
+
+### Cited Findings
+**CFTC filing ending the Volume Incentive Program** — [CFTC filing](https://www.cftc.gov/filings/orgrules/rules09282630083.pdf) (primary)
+- Kalshi's "Notice of Termination of the Volume Incentive Program", dated Sep 28 2026 and filed under Rule 3.13(f), says: "termination of this Program will go into effect no earlier than October 13, 2026".
+- The program terms:
+  - A fixed per-market Volume Reward per Eligible Term (at most 31 days), split pro rata by eligible volume.
+  - Eligible volume is order-book trades at prices from $0.03 to $0.97; it may be restricted to the taker or maker side.
+  - Rewards are capped at $0.005 per contract per participant.
+  - Excluded: Kalshi affiliates, members that have signed a Market Maker Agreement, and introducing brokers / futures commission merchants (IBs/FCMs) and their customers.
+
+**Program history and reported reasons**
+- The program launched in March 2023.
+- The Block linked the end to scrutiny of volume. It cited a WSJ report that the CFTC was examining repeated trades of about $5,500 that accounted for more than $5B of ETH-perps volume in a month. Kalshi says it is not under investigation and denies wash trading — [The Block, Sep 30 2026](https://theblock.co/news/business/2026-09-30-kalshi-ends-trader-incentive-program-417247); [SBC Americas](https://sbcamericas.com/2026/10/02/kalshi-end-volume-rewards-scrutiny/).
+- Sources conflict on the previous end date: Oct 1 2027 per [Unchained](https://unchainedcrypto.com/kalshi-ends-its-trader-volume-rewards-a-year-early-amid-wash-trading-allegations/), versus Sep 1 2027 in an August 2026 filing ([CFTC](https://www.cftc.gov/filings/orgrules/rules08042613748.pdf)).
+
+**Liquidity Incentive Program** ([Kalshi help](https://help.kalshi.com/en/articles/13823851-liquidity-incentive-program))
+- Rewards of $1–$1,000 per day per market.
+- Scoring uses a once-per-second snapshot, with orders weighted by distance from a Reference Price determined by Target Size (100–20,000 contracts) and a Discount Factor.
+- The program ends Jan 1 2027 and can be changed at any time.
+- Excluded: non-US users, IBs/FCMs, and Kalshi affiliates and employees. Minimum payout is $1.
+- A different Kalshi help page lists Sep 1 2026 as the end date, which conflicts.
+
+**Fees and API**
+- Taker fee = 0.07 × C × P × (1−P), applied to every category. Maker fees are about 0.0175 (25% of the taker fee) when a resting order fills; cancels are free. Kalshi offers full REST and WebSocket APIs — [River Markets, updated Aug 9 2026](https://www.rivermarkets.com/insights/kalshi-fees.html).
+- The official fee schedule PDF, effective Feb 5 2026, lists a separate 0.0175 maker formula — [Kalshi fee schedule](https://kalshi.com/docs/kalshi-fee-schedule.pdf). This is from a search snippet only; my fetch was blocked (429 / Vercel checkpoint).
+- One guide says maker fees apply only to a named list of series. Unresolved.
+
+**International access**
+- Kalshi says it is available in 140+ countries, with 38 jurisdictions restricted.
+- International payment options are debit card (Visa/Mastercard), wire (minimum $1,000) and crypto.
+- Kalshi is banned in Belgium, France, Singapore and Colombia, and blocked in Spain (DGOJ, May 2026). — [Kalshi help](https://help.kalshi.com/en/articles/14026044-international-access-eligibility); [SBC News](https://sbcnews.co.uk/featurednews/2025/10/14/kalshi-polymarket-growth/)
+
+### Inferences
+- Once the Volume Incentive Program ends, about Oct 13 2026, Kalshi's "volume farming" route for small traders disappears. Maker economics shift to the LIP (US-only) and to market-maker agreements.
+- For a non-US operator, Kalshi offers fewer incentives than for a US one.
+- Versus Polymarket international, Kalshi's 0.07 taker coefficient applies across all categories. Polymarket's ranges from 0.03 to 0.05 for sports and is 0 for geopolitics, so copying-style taker strategies are cheaper on Polymarket outside crypto.
+- Polymarket US's new 0.0695 taker / 0.0125 maker-rebate schedule is now close to Kalshi's, but pays the maker instead of charging a maker fee.
+
+### Gaps
+- I could not read the official Kalshi fee PDF or the per-series maker-fee list directly.
+- Total payouts under Kalshi's incentive programs were not disclosed.
+- Whether the LIP end date is Jan 1 2027 or Sep 1 2026 is unresolved; the help pages conflict.
+- Kalshi Market Maker Agreement terms are not public.
