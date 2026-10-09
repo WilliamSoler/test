@@ -1,0 +1,9 @@
+{
+  "generated_utc": "2026-10-09T22:19:13Z",
+  "lookback_hours": {
+    "15m": 48.0,
+    "5m": 48.0,
+    "4h": 48.0
+  },
+  "assets": "btc,eth,sol,xrp"
+}

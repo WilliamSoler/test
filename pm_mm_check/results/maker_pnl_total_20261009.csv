@@ -1,0 +1,2 @@
+all,markets,trades,shares,notional_usd,taker_fees_usd,maker_rebate_pool_usd,maker_pnl_to_resolution_usd,maker_markout_60s_usd,maker_markout_300s_usd,fee_pct_of_notional,maker_net_resolution_usd,maker_net_bps_of_notional,rebate_bps_of_notional,adverse_sel_bps_resolution,adverse_sel_bps_60s,adverse_sel_bps_300s
+ALL,5328,2220638,64151339.64,32145652.73,669880.06,133976.01,-162090.21,74794.54,-180169.21,2.08,-28114.2,-8.75,41.68,-50.42,23.27,-56.05

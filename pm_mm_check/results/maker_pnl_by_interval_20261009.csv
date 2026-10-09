@@ -1,0 +1,4 @@
+interval,markets,trades,shares,notional_usd,taker_fees_usd,maker_rebate_pool_usd,maker_pnl_to_resolution_usd,maker_markout_60s_usd,maker_markout_300s_usd,fee_pct_of_notional,maker_net_resolution_usd,maker_net_bps_of_notional,rebate_bps_of_notional,adverse_sel_bps_resolution,adverse_sel_bps_60s,adverse_sel_bps_300s
+15m,2688,1044270,32368635.3,16059391.11,354434.16,70886.83,-205085.44,9903.18,-228087.29,2.21,-134198.61,-83.56,44.14,-127.7,6.17,-142.03
+4h,336,57679,2077819.66,1062255.75,24509.45,4901.89,2059.01,16082.52,7935.92,2.31,6960.9,65.53,46.15,19.38,151.4,74.71
+5m,2304,1118689,29704884.67,15024005.86,290936.45,58187.29,40936.22,48808.84,39982.16,1.94,99123.51,65.98,38.73,27.25,32.49,26.61

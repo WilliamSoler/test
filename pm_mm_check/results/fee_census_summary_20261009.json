@@ -1,0 +1,79 @@
+{
+  "generated_utc": "2026-10-09T22:01:03Z",
+  "active_markets": 279228,
+  "closed_last_24h": 76874,
+  "fee_schedules_seen": [
+    [
+      "{\"feeType\": \"sports_fees_v3\", \"rate\": 0.05, \"rebateRate\": 0.15}",
+      269111
+    ],
+    [
+      "{\"feeType\": \"sports_fees_nfl_cfb_oct26\", \"rate\": 0.03, \"rebateRate\": 0.15}",
+      42607
+    ],
+    [
+      "{\"feeType\": \"politics_fees\", \"rate\": 0.04, \"rebateRate\": 0.25}",
+      12178
+    ],
+    [
+      "{\"feeType\": \"crypto_fees_v2\", \"rate\": 0.07, \"rebateRate\": 0.2}",
+      10723
+    ],
+    [
+      "{\"feeType\": \"sports_fees_v2\", \"rate\": 0.03, \"rebateRate\": 0.25}",
+      4572
+    ],
+    [
+      "{\"feeType\": \"weather_fees\", \"rate\": 0.05, \"rebateRate\": 0.25}",
+      3741
+    ],
+    [
+      "{\"feeType\": \"finance_prices_fees\", \"rate\": 0.04, \"rebateRate\": 0.25}",
+      3057
+    ],
+    [
+      "{\"feeType\": \"culture_fees\", \"rate\": 0.05, \"rebateRate\": 0.25}",
+      3015
+    ],
+    [
+      "{\"feeType\": \"no_fee\", \"rate\": 0.0, \"rebateRate\": 0.0}",
+      2503
+    ],
+    [
+      "{\"feeType\": \"tech_fees\", \"rate\": 0.04, \"rebateRate\": 0.25}",
+      2428
+    ],
+    [
+      "{\"feeType\": \"economics_fees\", \"rate\": 0.05, \"rebateRate\": 0.25}",
+      985
+    ],
+    [
+      "{\"feeType\": \"mentions_fees\", \"rate\": 0.04, \"rebateRate\": 0.25}",
+      455
+    ],
+    [
+      "{\"feeType\": \"general_fees\", \"rate\": 0.05, \"rebateRate\": 0.25}",
+      181
+    ],
+    [
+      "{\"feeType\": \"zero_fees\", \"rate\": 0, \"rebateRate\": 0}",
+      69
+    ],
+    [
+      "{\"feeType\": \"crypto_fees\", \"rate\": 0.25, \"rebateRate\": 0.2}",
+      6
+    ],
+    [
+      "{\"feeType\": \"crypto_15_min\", \"rate\": 0.25, \"rebateRate\": 0.2}",
+      1
+    ]
+  ],
+  "taker_fees_24h_usd": 1168526.1243286747,
+  "rebate_pool_24h_usd": 193842.66089144137,
+  "rebate_pool_annualised_usd": 70752571.2253761,
+  "liquidity_rewards_24h_usd": 200424.250141,
+  "trade_sample_minutes": 10.883333333333333,
+  "trade_sample_trades": 6814,
+  "trade_sample_annualised_fees_usd": 213656599.60953206,
+  "trade_sample_annualised_rebates_usd": 42595884.77464593
+}

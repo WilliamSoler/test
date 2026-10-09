@@ -1,0 +1,13 @@
+{
+  "generated_utc": "2026-10-09T22:08:56Z",
+  "lookback_hours": {
+    "15m": 168.0,
+    "5m": 48.0,
+    "4h": 336.0
+  },
+  "assets": "btc,eth,sol,xrp",
+  "first_trade_ts": 1790286539,
+  "last_trade_ts": 1791576371,
+  "markets": 5328,
+  "trades": 2220638
+}
