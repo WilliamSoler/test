@@ -44,3 +44,60 @@ STATUS: IN PROGRESS (notes being written incrementally; sections below may be in
 - PRIMARY: Kalshi CFTC filing Sep 28 2026 "Notice of Termination of the Volume Incentive Program" (cftc.gov/filings/orgrules/rules09282630083.pdf), signed Rhianna Ross: termination effective NO EARLIER THAN Oct 13 2026 under Rule 3.13(f). Terms: all Kalshi markets; per-market fixed "Volume Reward" per Eligible Term (<=31 days) split pro rata by Eligible Volume (CLOB trades at $0.03-$0.97; may be limited to taker or maker side); capped at $0.005 per contract per participant; EXCLUDES Kalshi affiliates, members with a MARKET MAKER AGREEMENT, IBs/FCMs and their customers. (Confirms Kalshi has a separate Market Maker Agreement program.) Redline text extraction didn't show the prior end date (Unchained says Oct 1 2027; Aug 2026 filing rules08042613748 said Sep 1 2027).
 - PM US incentive programs (docs.polymarket.us/incentives/overview.md): User programs (Deposit, Refer-A-Friend, Deposit+Trading — open; Sequential — coming soon); INSTITUTIONAL: Volume Incentive Program (open; taker notional 3c-97c, pro-rata pools e.g. $100k per NBA Playoffs moneyline in-game, min $500 notional), Liquidity Incentive Program (open; per-second random snapshot scoring = DiscountFactor^ticks * size, Target Size, optional Max Spread, pools per time period pre-game/day-of/live/daily, live schedule at polymarket.us/rewards; paid within ~5+2 business days; $1 min), MARKET MAKER PROGRAM (by application, contractual). AFFILIATE: Referral Incentive Program (by application, contractual) — i.e., PM US has an affiliate route distinct from $25 refer-a-friend. All require US KYC (SSN).
 - PRIMARY (polymarket.com page strings, fetched Oct 9 2026): trade-confirmation attestation: "By trading, you agree to the [Terms] and attest that you are not (i) a U.S. person; (ii) located in the United States, France or other restricted jurisdiction; and (iii) using a VPN or other measures to circumvent or attempt to circumvent restrictions. Polymarket reserves the right to put your wallet in close-only mode if you do not comply with these Terms." Site nav links institutional.polymarket.com. Full ToS text re: API commercial use/data redistribution not retrievable (JS-rendered) -> GAP.
+
+## QUANT RESULT 1: PnL persistence (own analysis, Oct 9 2026)
+Method: universe = wallets seen in /trades of the 400 highest-volume markets that ENDED Apr 1-Jul 31 2026 (gamma, closed), >=$500 sampled notional (16,702 wallets); took the 5,000 largest by sampled notional; daily cumulative PnL series from user-pnl-api.polymarket.com/user-pnl?interval=all&fidelity=1d. 4,417 returned series; 583 (12%) returned EMPTY series (skewed to single-market wallets, median 1 market vs 4) -> excluded (survivorship-type bias: one-shot wallets under-represented). Formation PnL = change in cumulative PnL over formation window; test = change over next window. PnL is $ (incl. mark-to-market), not % return.
+| Split (formation -> test) | n active | Spearman rank corr | Top-10 test mean / median / %pos / %flat | Top-50 test mean / median / %pos | Top-100 test mean / %pos | Bottom-100 test mean / %pos | All active %pos |
+|---|---|---|---|---|---|---|---|
+| Apr-May -> Jun-Jul | 3,721 | 0.163 | $1.47M / -$18k / 40% / 10% | $404k / $35k / 56% | $214k / 50% | -$217k / 33% | 50% |
+| Jun-Jul -> Aug1-Oct8 | 4,061 | 0.103 | $307k / $0 / 40% / 40% | $126k / $0 / 38% | $60k / 46% | -$33k / 33% | 38% |
+| Jul -> Aug | 3,658 | 0.086 | $47k / $0 / 40% / 40% | $23k / $0 / 44% | $0.4k / 45% | -$25k / 31% | 40% |
+| Aug -> Sep | 2,916 | 0.262 | $252k / $71k / 80% / 0% | $204k / $72k / 74% | $101k / 69% | -$71k / 27% | 48% |
+| Sep -> Oct1-8 | 2,777 | 0.173 | -$159k / -$2k / 40% / 0% | $15k / $0.3k / 50% | $12k / 53% | -$12k / 32% | 46% |
+- Formation means for top-10 were $0.66M-$3.8M, so test PnL is typically 5-30% of formation PnL (strong mean reversion of the $ magnitude) and top-100 overlap between formation and test is only 26-38 wallets.
+- Deciles: top formation decile has positive test mean in 4/5 splits; bottom decile negative in 5/5 (losers keep losing more reliably than winners keep winning). Middle deciles ~0.
+- Many top-10 formation wallets go FLAT (no PnL change) in the test window (40% in Jun-Jul->Aug-Oct, Jul->Aug): one-shot / event-specific winners (e.g., World Cup) that stop trading.
+- Live gamma feeSchedule fields (top-200 closed markets ending after Sep 20 2026): 41 no-fee (feesEnabled false, e.g. Fed-chair/geopolitics), politics_fees rate 0.04 (rebate 25%), sports_fees_v2 rate 0.03 (rebate 25%), sports_fees_v3 rate 0.05 (rebate 15%), sports_fees_nfl_cfb_oct26 rate 0.03 (rebate 15%), zero_fees, culture 0.05, economics 0.05. => sports is 0.03 OR 0.05 depending on market fee type (resolves the brief's "sports 0.05/0.03"). Fee as % of notional for a taker BUY at price p = rate*(1-p): e.g. crypto at 50c = 3.5%, sports(0.05) 2.5%, sports(0.03)/politics(0.04) 1.5%/2.0%; at 80c: crypto 1.4%, politics 0.8%.
+
+## QUANT RESULT 2 (preliminary, run 1): copy-trade simulation, leaders = top-50 by Jun-Jul 2026 PnL, test Aug 1-Oct 8 2026
+Method (copysim.py): each leader's TAKER BUY fills in test window from data-api /trades?user=&takerOnly=true (aggregated per token per 60s = 1 signal; max 120 random signals/leader); copier buys same token D minutes later at price = leader VWAP + (CLOB prices-history 1-min price at t+D minus price just before fill) — i.e. pays the same spread/impact the leader paid plus subsequent drift; holds to resolution; taker fee per market feeSchedule. 50 leaders -> 114,569 taker-buy fills -> 3,401 signals sampled -> 2,946 with resolved market+history (2,753 after excluding leader price <2c/>98c).
+- Notional-weighted (copy in proportion to leader size) net return per $ held to resolution: D=0 (leader's own entry) -0.06% (gross +1.4% on all 2,946); D=1m -1.0%; 2m -2.3%; 5m -3.2%; 15m -5.1%; 60m -9.7%.
+- Equal-$ per signal, raw mean is dominated by artifacts in 5/15-min crypto Up/Down markets (1-min price history too coarse; copier price can collapse to ~1c) -> unreliable; see run 2.
+- Median taker share of leaders' notional in test window = 60%; 13/50 leaders >80% taker, 2/50 <20% taker (others mix maker/taker -> maker fills cannot be copied as cheap taker orders).
+- Copier price slippage vs leader (winning signals only, biased upward): median +1.0c at 1m, +2.0c at 2-5m, +3.5c at 15m, +8.5c at 60m.
+
+## QUANT RESULT 2 (FINAL, run 2 supersedes run 1): copy-sim A — leaders = top-50 by Jun-Jul 2026 PnL; test Aug 1-Oct 8 2026
+- 50 leaders: 114,568 taker-buy fills -> 3,401 signals (<=120/leader sampled) -> 2,946 with resolved market & price history -> 35 leaders had usable signals (15 of the 50 had no taker buys / no resolved markets in test window = went inactive or maker-only).
+- Cleaning: dropped leader price <2c/>98c and 593 signals where the 1-min price history hit the clamp or fell below half the leader price within 15 min (data glitches, e.g. "Will Iceland win" priced 0.001 for 15 min; 5-min crypto Up/Down). Final n=2,160 signals. CIs = 95% bootstrap resampling leaders (clustered).
+| Copier delay | Size-weighted net return (copy proportional to leader $) | Equal-$ per signal net |
+|---|---|---|
+| 0 (leader's own fill price, i.e. upper bound) | -0.5% [-9.8, +13.0] (gross +1.3%) | +7.6% [-4.7, +18.7] |
+| 1 min | -2.1% [-10.6, +9.1] | +3.4% [-7.7, +13.5] |
+| 2 min | -2.7% [-12.9, +7.3] | +1.7% [-8.7, +11.5] |
+| 5 min | -3.4% [-13.4, +5.4] | -0.9% [-10.9, +8.4] |
+| 15 min | -5.0% [-13.8, +2.6] | -7.5% [-16.8, +1.6] |
+| 60 min | -10.6% [-24.9, -5.8] | -16.2% [-27.6, -5.2] |
+- Copier price minus leader VWAP: mean +1.45c / median +0.7c at 1m; +2.7c / +1.0c at 5m; +3.8c / +1.0c at 15m. Avg taker fee = 1.9% of notional at leader price (sports 2.4%, crypto 4.1%).
+- By category: SPORTS (1,372 signals, 30 leaders): size-wtd 0m -0.8%, 1m -2.4%, 5m -4.0%, 15m -6.3% [-20.3,-1.1]; equal-$ 0m +12.4% [+0.2,+24.2], 1m +7.5% [-2.8,+16.3], 5m +4.0% [-5.8,+12.1] (only category with a hint of copyable edge, in small trades, not significant after 1m). NO/ZERO-FEE markets (geopolitics etc., 474): size-wtd -5% to -6% at all delays, equal-$ -16% to -21% (leaders lost here). OTHER fee'd (politics/culture/econ/tech, 266 signals, 10 leaders): +33% at 0m, +28.5% at 5m size-wtd but CI [-27,+58] — driven by a few large winning bets. CRYPTO (48): -8% at 0m, -52% at 5m, -105% at 15m (fast markets uncopyable).
+- Only 16/32 leaders (>=10 signals) had positive size-weighted net returns even at 0 delay; 16 at 1m; 15 at 5m.
+
+## QUANT RESULT 3: copy-sim B — leaders = top-50 by AUGUST 2026 PnL; copied in Sep 1-Oct 1 2026 (resolved by Oct 9)
+- 50 leaders: 63,564 taker-buy fills -> 3,968 signals -> 3,333 resolved -> 2,456 after cleaning (612 glitch drops), 38 leaders. Leader taker share of notional: median 54%; 4/50 >80% taker, 3/50 <20%.
+| Delay | Size-weighted net | Equal-$ net |
+|---|---|---|
+| 0 | +12.5% [+0.7, +21.9] (gross +13.4%) | +8.8% [-2.4, +20.9] |
+| 1 min | +11.3% [-1.7, +20.9] | +5.8% [-5.8, +16.9] |
+| 2 min | +10.8% [-1.3, +20.5] | +3.5% [-6.5, +14.9] |
+| 5 min | +10.1% [-3.4, +21.1] | +2.7% [-7.9, +12.7] |
+| 15 min | +8.1% [-5.1, +18.2] | -3.4% [-12.8, +6.9] |
+| 60 min | +1.9% [-12.2, +13.0] | -12.8% [-22.7, -3.2] |
+- Sports (1,468): size-wtd +9.8% (0m) -> +7.9% (1m) -> +7.0% (5m) -> +4.0% (15m) -> -7.8% (60m); equal-$ +8.7% -> +5.0% -> +1.2% -> -8.7% -> -21.6%. No/zero-fee (574): +10.7% -> +10.4% (1m) -> +8.5% (5m). Other fee'd (397): ~+23-25% at all delays (wide CI).
+- 28/37 leaders positive at 0m, 25 at 1m, 23 at 5m.
+- Copier price minus leader VWAP: mean +1.3c/median +0.5c at 1m; +2.5c/+1.0c at 5m; +3.9c/+1.0c at 15m.
+- CONTRAST with sim A (Jun-Jul leaders, Aug-Oct): A was negative (-2.1% at 1m). Result is regime-dependent; consistent with persistence table (Aug->Sep rank corr 0.26, top-50 74% positive vs 38% for Jun-Jul->Aug-Oct).
+
+## QUANT RESULT 4: copy-sims C and D + pooled summary
+- C: leaders = top-50 by Sep 2026 PnL, copied Oct 1-8 (resolved by Oct 9; short window -> fast-resolving markets): 102,766 taker-buy fills, 1,674 clean signals, 39 leaders. Size-wtd net: 0m -9.6% [-27.3,+5.0], 1m -9.6%, 5m -9.5%, 15m -12.0% [-28.3,-1.0]. Equal-$: 0m -2.8%, 1m -2.8%, 5m -9.1% [-16.2,-2.7], 15m -12.6% [-18.3,-6.7]. Leaders' own gross size-wtd -8.7%.
+- D: leaders = top-50 by Jul 2026 PnL, copied Aug 2026: 46,460 fills, 1,599 clean signals, 31 leaders. Size-wtd: 0m -8.2%, 1m -10.5%, 5m -12.5%, 15m -15.0%, 60m -31.2% [-39.9,-16.5]. Equal-$: 0m +9.2% [+0.9,+19.4], 1m +6.3% [-1.2,+14.9], 5m +2.4%, 15m -3.6%, 60m -19.0%.
+- POOLED (simple average of 4 sims A-D): size-weighted 1m = -2.7%, 5m ≈ -3.9%, 15m ≈ -6.0%; equal-$ 0m ≈ +5.7%, 1m ≈ +3.2%, 5m ≈ -1.2%, 15m ≈ -6.8%, 60m ≈ -16% (D -19, A -16, B -13; C n/a-noisy). Leaders' own size-weighted net at 0m: -0.5, +12.5, -9.6, -8.2 (only 1/4 periods positive).
+- Copier slippage is consistent across sims: ~+0.5c median / +1.2-1.5c mean at 1 min, +1c median / +2.2-2.7c mean at 5 min, +1c median / +3.6-4.1c mean at 15 min.
