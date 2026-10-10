@@ -1,0 +1,4 @@
+near_empty_book,slow_ex_ante,markets,rewards_usd_day,jump_loss_usd_day,net_stress_usd_day,apr_stress_pct,markets_positive_pct
+False,False,73,378.7,1434.0,-1055.3,-175.9,41.1
+False,True,32,51.7,171.9,-120.3,-45.7,68.8
+True,False,8,614.9,1212.1,-597.2,-908.3,37.5

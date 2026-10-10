@@ -1,0 +1,9 @@
+{
+  "generated_utc": "2026-10-10T00:04:24Z",
+  "days": 30,
+  "min_rate": 50.0,
+  "shares_per_side": 1000,
+  "requote_seconds": 300,
+  "markets_simulated": 387,
+  "errors": 0
+}
