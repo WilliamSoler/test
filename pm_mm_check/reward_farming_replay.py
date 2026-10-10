@@ -8,8 +8,9 @@ had been running for the lookback window:
             Optional "pull" rule: skip quoting for 30 min after the mid moves more than 1.5c in one step.
             Inventory is capped at +/- 2*S shares (the side that would grow it is not quoted).
   fills     every real taker trade (Data API) is mapped to the Yes token; a taker sell at a price *below* our bid
-            (trade-through, conservative) or *at or below* it (optimistic: we are first in the queue) fills our bid,
-            and symmetrically for the ask.
+            (trade-through, "conservative") or *at or below* it ("optimistic": we are first in the queue) fills our
+            bid, and symmetrically for the ask. "adverse" = any trade-through fills our whole remaining size (an
+            informed trader would have swept us), the pessimistic bound for thin books.
   rewards   Polymarket's documented score ((v - s) / v)^2 * size per side, two-sided rule with c = 3 inside
             0.10-0.90; our share = our score / (our score + competitors' score), where competitors' score is measured
             from live order-book snapshots taken now and assumed constant over the window.
@@ -61,7 +62,8 @@ def gamma_markets(cids: list[str]) -> dict[str, dict]:
     for i in range(0, len(cids), 40):
         batch = cids[i:i + 40]
         for closed in ("false", "true"):
-            for m in pm_api.get(f"{pm_api.GAMMA}/markets", [("condition_ids", c) for c in batch] + [("closed", closed)]):
+            for m in pm_api.get(f"{pm_api.GAMMA}/markets",
+                                [("condition_ids", c) for c in batch] + [("closed", closed), ("limit", 100)]):
                 out[m["conditionId"]] = m
     return out
 
@@ -115,7 +117,7 @@ def yes_trades(m: dict, start: int) -> tuple[list[dict], bool]:
     return out, truncated
 
 
-def simulate(ts, px, trades, *, v, tick, min_size, rate, comp, S, dist, pull, step_s, optimistic, fee_sched,
+def simulate(ts, px, trades, *, v, tick, min_size, rate, comp, S, dist, pull, step_s, fill_model, fee_sched,
              payout):
     """Returns P&L components for one market / strategy / fill model."""
     if len(ts) < 10:
@@ -163,15 +165,16 @@ def simulate(ts, px, trades, *, v, tick, min_size, rate, comp, S, dist, pull, st
             ti += 1
             if tr["ts"] < g:
                 continue
+            optimistic = fill_model == "optimistic"
             if left_b > 0 and tr["side"] == "SELL" and (tr["p"] < bid - 1e-9 or (optimistic and tr["p"] <= bid + 1e-9)):
-                q = min(left_b, tr["q"])
+                q = left_b if fill_model == "adverse" else min(left_b, tr["q"])
                 left_b -= q
                 cash -= q * bid
                 inv += q
                 rebates += rr * q * rate_fee * bid * (1 - bid)
                 fills.append((tr["ts"], +1, bid, q))
             elif left_a > 0 and tr["side"] == "BUY" and (tr["p"] > ask + 1e-9 or (optimistic and tr["p"] >= ask - 1e-9)):
-                q = min(left_a, tr["q"])
+                q = left_a if fill_model == "adverse" else min(left_a, tr["q"])
                 left_a -= q
                 cash += q * ask
                 inv -= q
@@ -225,7 +228,7 @@ def run_market(args_tuple):
         tick = float(m.get("orderPriceMinTickSize") or 0.01)
         sched = m.get("feeSchedule") if m.get("feesEnabled") else None
         for name, (dist, pull) in STRATS.items():
-            for optimistic in (False, True):
+            for fill_model in ("conservative", "optimistic", "adverse"):
                 for half_name, (a, b) in {"full": (None, None), "h1": (None, "mid"), "h2": ("mid", None)}.items():
                     if px and half_name != "full":
                         mid_t = ts[0] + (ts[-1] - ts[0]) / 2
@@ -236,10 +239,10 @@ def run_market(args_tuple):
                     else:
                         ts_h, px_h, tr_h, pay_h = ts, px, trades, payout
                     res = simulate(ts_h, px_h, tr_h, v=v, tick=tick, min_size=base["min_size"], rate=base["rate"],
-                                   comp=comp, S=S, dist=dist, pull=pull, step_s=step_s, optimistic=optimistic,
+                                   comp=comp, S=S, dist=dist, pull=pull, step_s=step_s, fill_model=fill_model,
                                    fee_sched=sched, payout=pay_h)
                     if res:
-                        out.append({**base, "strategy": name, "fill_model": "optimistic" if optimistic else "conservative",
+                        out.append({**base, "strategy": name, "fill_model": fill_model,
                                     "period": half_name, **res})
         return out
     except Exception as e:
@@ -254,6 +257,7 @@ def main():
     ap.add_argument("--step", type=int, default=300, help="re-quote interval, seconds")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--max-markets", type=int, default=400)
+    ap.add_argument("--budget", type=float, default=40000, help="capital budget for the out-of-sample portfolio")
     ap.add_argument("--snap-wait", type=int, default=180, help="seconds between the 3 order-book snapshots")
     args = ap.parse_args()
     now = int(time.time())
@@ -333,6 +337,17 @@ def main():
     oos = h2.loc[h2.index.intersection(pick)].reset_index()
     tables["out_of_sample_picked_on_h1"] = oos.groupby(["strategy", "fill_model"]).apply(portfolio)
     tables["out_of_sample_all_h2"] = h2.reset_index().groupby(["strategy", "fill_model"]).apply(portfolio)
+    # $-budgeted portfolio: rank markets by first-half APR, fill a capital budget, evaluate on the second half
+    h1r = h1.reset_index()
+    h1r["apr_h1"] = h1r.net / h1r.capital / h1r.days
+    budget_rows = []
+    for (strat, fm), g in h1r.groupby(["strategy", "fill_model"]):
+        g = g.sort_values("apr_h1", ascending=False)
+        g = g[g.capital.cumsum() <= args.budget]
+        sel = h2.loc[h2.index.intersection(list(zip(g.conditionId, g.strategy, g.fill_model)))].reset_index()
+        if len(sel):
+            budget_rows.append(portfolio(sel).rename((strat, fm)))
+    tables[f"out_of_sample_budget_{int(args.budget)}"] = pd.DataFrame(budget_rows)
     for name, t in tables.items():
         t.to_csv(RESULTS / f"reward_replay_{name}_{stamp}.csv")
         with pd.option_context("display.width", 250, "display.max_columns", 30):
